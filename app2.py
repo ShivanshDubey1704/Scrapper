@@ -1,76 +1,79 @@
-# streamlit_app.py
 import streamlit as st
-from googlesearch import search
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
 import io
 import time
+import random
 
-def get_articles(query, num_results=10):
+# List of real user agents to rotate
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.69 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/124.0"
+]
+
+HEADERS = {
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.google.com/",
+    "Cache-Control": "no-cache"
+}
+
+def google_search(query, num_results=10):
+    query = query.replace(' ', '+')
+    url = f"https://www.google.com/search?q={query}&num={num_results}"
+    headers = HEADERS.copy()
+    headers['User-Agent'] = random.choice(USER_AGENTS)
+
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        st.error(f"Google search failed with status code: {response.status_code}")
+        return []
+
+    soup = BeautifulSoup(response.text, 'html.parser')
     results = []
-    urls = []
-    
-    try:
-        urls = list(search(query, num_results=num_results, lang='en'))
-    except Exception as e:
-        st.error(f"❌ Error during Google Search: {e}")
-        return results
 
-    if not urls:
-        st.warning("No URLs found. Try changing the keyword or reducing filters.")
-        return results
+    for g in soup.find_all('div', class_='tF2Cxc'):
+        title = g.find('h3')
+        snippet = g.find('div', class_='VwiC3b')
+        link = g.find('a')['href'] if g.find('a') else None
 
-    progress = st.progress(0)
-
-    for i, url in enumerate(urls):
-        try:
-            r = requests.get(url, timeout=5, verify=False)
-            soup = BeautifulSoup(r.content, 'html.parser')
-            title = soup.title.string.strip() if soup.title else "No Title"
-            snippet_tag = soup.find('meta', {'name': 'description'}) or soup.find('meta', {'property': 'og:description'})
-            snippet = snippet_tag['content'].strip() if snippet_tag and 'content' in snippet_tag.attrs else "No description"
+        if title and link:
             results.append({
-                'Title': title,
-                'Snippet': snippet,
-                'URL': url
-            })
-        except Exception as e:
-            results.append({
-                'Title': 'Error fetching',
-                'Snippet': str(e),
-                'URL': url
+                "Title": title.get_text(),
+                "Snippet": snippet.get_text() if snippet else "No snippet available",
+                "URL": link
             })
 
-        progress.progress((i + 1) / len(urls))
-        time.sleep(0.1)
+        time.sleep(1)  # polite delay
 
     return results
 
 # Streamlit UI
-st.set_page_config(page_title="Web News Scraper", layout="centered")
-st.title("📰 Web News Scraper")
+st.set_page_config(page_title="Google Scraper", layout="centered")
+st.title("🔎 Google Search Scraper (No API)")
 
 keyword = st.text_input("Enter Keyword")
 date = st.date_input("Select Date")
 location = st.text_input("Enter Location")
-num_results = st.slider("Number of Articles", min_value=5, max_value=50, value=10)
+num_results = st.slider("Number of Articles", min_value=5, max_value=30, value=10)
 
-if st.button("🔍 Search and Save"):
+if st.button("Search"):
     if keyword and location:
-        search_query = f"{keyword} {location} after:{date.strftime('%Y-%m-%d')}"
-        st.write(f"Searching for: **{search_query}**")
-        data = get_articles(search_query, num_results)
+        query = f"{keyword} {location} after:{date.strftime('%Y-%m-%d')}"
+        st.write(f"Searching Google for: **{query}**")
+        results = google_search(query, num_results)
 
-        if data:
-            df = pd.DataFrame(data)
+        if results:
+            df = pd.DataFrame(results)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Articles')
                 writer.close()
 
-            st.success("✅ Search complete. Download your file below:")
+            st.success("✅ Search complete. Download the results below.")
             st.download_button(
                 label="📥 Download Excel",
                 data=output.getvalue(),
@@ -78,6 +81,6 @@ if st.button("🔍 Search and Save"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.warning("⚠️ No data found. Try a different keyword or fewer results.")
+            st.warning("⚠️ No articles found. Google may be rate-limiting.")
     else:
-        st.warning("⚠️ Please provide both keyword and location.")
+        st.warning("Please provide both keyword and location.")
