@@ -5,55 +5,39 @@ import pandas as pd
 from datetime import datetime
 import io
 import time
-import random
 
-# List of real user agents to rotate
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.69 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/124.0"
-]
-
-HEADERS = {
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.google.com/",
-    "Cache-Control": "no-cache"
-}
-
-def google_search(query, num_results=10):
-    query = query.replace(' ', '+')
-    url = f"https://www.google.com/search?q={query}&num={num_results}"
-    headers = HEADERS.copy()
-    headers['User-Agent'] = random.choice(USER_AGENTS)
-
+def duckduckgo_search(query, num_results=10):
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    url = f"https://html.duckduckgo.com/html/?q={query}"
     response = requests.get(url, headers=headers)
+
     if response.status_code != 200:
-        st.error(f"Google search failed with status code: {response.status_code}")
+        st.error(f"DuckDuckGo failed with status code: {response.status_code}")
         return []
 
-    soup = BeautifulSoup(response.text, 'html.parser')
+    soup = BeautifulSoup(response.text, "html.parser")
+    links = soup.find_all("a", class_="result__a", limit=num_results)
+
     results = []
-
-    for g in soup.find_all('div', class_='tF2Cxc'):
-        title = g.find('h3')
-        snippet = g.find('div', class_='VwiC3b')
-        link = g.find('a')['href'] if g.find('a') else None
-
-        if title and link:
-            results.append({
-                "Title": title.get_text(),
-                "Snippet": snippet.get_text() if snippet else "No snippet available",
-                "URL": link
-            })
-
-        time.sleep(1)  # polite delay
+    for link in links:
+        title = link.get_text()
+        href = link['href']
+        snippet_tag = link.find_parent("div", class_="result")
+        snippet = snippet_tag.find("a", class_="result__snippet").get_text() if snippet_tag else ""
+        results.append({
+            "Title": title,
+            "Snippet": snippet,
+            "URL": href
+        })
+        time.sleep(0.5)  # gentle crawl
 
     return results
 
 # Streamlit UI
-st.set_page_config(page_title="Google Scraper", layout="centered")
-st.title("🔎 Google Search Scraper (No API)")
+st.set_page_config(page_title="News Scraper", layout="centered")
+st.title("📰 Web Search Scraper (DuckDuckGo)")
 
 keyword = st.text_input("Enter Keyword")
 date = st.date_input("Select Date")
@@ -63,8 +47,8 @@ num_results = st.slider("Number of Articles", min_value=5, max_value=30, value=1
 if st.button("Search"):
     if keyword and location:
         query = f"{keyword} {location} after:{date.strftime('%Y-%m-%d')}"
-        st.write(f"Searching Google for: **{query}**")
-        results = google_search(query, num_results)
+        st.write(f"Searching DuckDuckGo for: **{query}**")
+        results = duckduckgo_search(query, num_results)
 
         if results:
             df = pd.DataFrame(results)
@@ -81,6 +65,6 @@ if st.button("Search"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.warning("⚠️ No articles found. Google may be rate-limiting.")
+            st.warning("⚠️ No articles found.")
     else:
         st.warning("Please provide both keyword and location.")
